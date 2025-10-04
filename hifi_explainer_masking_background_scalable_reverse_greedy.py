@@ -249,6 +249,7 @@ class HiFiExplainerScalable:
         loco_sequence = [starting_point]
 
         should_continue = True
+        n_steps = 0
         while remaining_indices and should_continue:
             deltas = []
             candidates = []
@@ -281,10 +282,13 @@ class HiFiExplainerScalable:
 
             if abs(best_delta) < threshold:
                 should_continue = False
+            if n_steps == 2:
+                should_continue = False
             else:
                 selected_indices.append(best_idx)
                 loco_sequence.append(best_loco)
                 remaining_indices.remove(best_idx)
+                n_steps +=1
 
         return selected_indices, loco_sequence, len(selected_indices)
 

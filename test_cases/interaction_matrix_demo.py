@@ -1,11 +1,12 @@
 # Esempio ipotetico
 import numpy as np
 import pandas as pd
+from sklearn.preprocessing import PolynomialFeatures, StandardScaler
 
 from interaction_matrix import HiFiDiagnosticMatrix
-from utils import preprocess_wine_data
+from utils import preprocess_wine_data, preprocess_for_hifi
 from sklearn.linear_model import LinearRegression
-import numpy as np
+from sklearn.datasets import fetch_california_housing
 
 def load_wine_data(path='./'):
     print("Loading wine dataset...")
@@ -27,7 +28,6 @@ def load_wine_data(path='./'):
     return x_data, x_names
 
 def generate_custom_toy_data(N=50000, random_seed=42):
-
     np.random.seed(random_seed)
 
     segnale_A = np.random.randn(N, 1)
@@ -35,7 +35,7 @@ def generate_custom_toy_data(N=50000, random_seed=42):
     segnale_C = np.random.randn(N, 1)
 
     noise_y = 0.1 * np.random.randn(N, 1)
-    Y = 2 * segnale_A + 3 * segnale_B + 1.5 * segnale_C + noise_y
+    Y = 2 * segnale_A + 3 * segnale_B + 4.5 * segnale_C + noise_y
 
 
     X1_ridondante = segnale_A + 0.2 * np.random.randn(N, 1)
@@ -61,27 +61,131 @@ def generate_custom_toy_data(N=50000, random_seed=42):
     print("Dataset generato.")
     return data, feature_names
 
+import numpy as np
 
-# --- 1) Dataset e modello
-#raw_data, raw_feature_names = load_wine_data("/Users/stanislao/Desktop/Hi-Fi/datasets/wine+quality/")
-raw_data, raw_feature_names = generate_custom_toy_data()
+def generate_third_order_toy_data(N=50000, random_seed=42):
+    np.random.seed(random_seed)
 
-initial_alpha = 0.05
-#target_name = 'quality'
-target_name = 'Y'
+    # --- Sorgenti indipendenti ---
+    a = np.random.randn(N, 1)
+    b = np.random.randn(N, 1)
+    c = np.random.randn(N, 1)
+    d = np.random.randn(N, 1)
+    e = np.random.randn(N, 1)
+
+    # --- Ridondanza: X1 e X2 derivano dalla stessa sorgente (a) ---
+    X1_ridondante = a + 0.2 * np.random.randn(N, 1)
+    X2_ridondante = a + 0.2 * np.random.randn(N, 1)
+
+    # --- Sinergia di 2° ordine: X3 e X4 creano un effetto solo insieme ---
+    X3_sinergica = b + 0.3 * np.random.randn(N, 1)
+    X4_sinergica_helper = -b + 0.3 * np.random.randn(N, 1)
+
+    # --- Feature unica: X5 influenza Y da sola ---
+    X5_unica = c + 0.1 * np.random.randn(N, 1)
+
+    # --- Sinergia di 3° ordine: X6, X7, X8 devono coesistere per creare effetto ---
+    X6 = d + 0.3 * np.random.randn(N, 1)
+    X7 = e + 0.3 * np.random.randn(N, 1)
+    X8 = np.random.randn(N, 1)  # completamente indipendente, ma parte dell'interazione
+
+    # --- Target ---
+    # Y = combinazione lineare + sinergie di secondo e terzo ordine + rumore
+    noise_y = 0.1 * np.random.randn(N, 1)
+    Y = (
+        2.0 * a +                     # effetto dai ridondanti
+        3.0 * X5_unica +              # unicità pura
+        4.0 * (X3_sinergica * X4_sinergica_helper) +  # sinergia 2° ordine
+        6.0 * (X6 * X7 * X8) +        # sinergia 3° ordine
+        noise_y
+    )
+
+    # --- Costruzione dataset finale ---
+    X = np.hstack([
+        X1_ridondante,
+        X2_ridondante,
+        X3_sinergica,
+        X4_sinergica_helper,
+        X5_unica,
+        X6,
+        X7,
+        X8
+    ])
+
+    data = np.hstack([Y, X])
+    feature_names = [
+        "Y",
+        "X1_Redundant",
+        "X2_Redundant",
+        "X3_Synergistic",
+        "X4_SynergyHelper",
+        "X5_Unique",
+        "X6_Synergy3_A",
+        "X7_Synergy3_B",
+        "X8_Synergy3_C",
+    ]
+    return data, feature_names
 
 
-processed_data, processed_names = generate_custom_toy_data(N=50000)
+def analyze_wine():
+    raw_data, raw_feature_names = load_wine_data("/Users/stanislao/Desktop/Hi-Fi/datasets/wine+quality/")
+    initial_alpha = 0.05
+    target_name = 'quality'
 
-target_idx = 0
+    processed_data, processed_names, target_idx, corrected_alpha = preprocess_wine_data(
+        raw_data, raw_feature_names, target_name, alpha=initial_alpha
+    )
+
+    return processed_data, processed_names, target_idx, target_name
+
+def analyze_toy():
+    processed_data, processed_names = generate_custom_toy_data(N=50000)
+    #processed_data, processed_names  = generate_third_order_toy_data(N=50000)
+    target_name = 'Y'
+    target_idx = 0
+    return processed_data, processed_names, target_idx, target_name
+
+def analyze_california():
+    housing = fetch_california_housing()
+
+    # Unisci features e target in un'unica matrice
+    data = np.c_[housing.data, housing.target]
+
+    feature_names = list(housing.feature_names) + ['MedHouseVal']
+    target_name = 'MedHouseVal'
+
+
+    initial_alpha = 0.05
+    processed_data, processed_names, target_idx, corrected_alpha = preprocess_for_hifi(
+        data, feature_names, target_name, alpha=initial_alpha
+    )
+    return processed_data, processed_names, target_idx, target_name
+
+
+#processed_data, processed_names, target_idx, target_name = analyze_wine()
+
+processed_data, processed_names, target_idx, target_name = analyze_toy()
+#processed_data, processed_names, target_idx, target_name = analyze_california()
+
+
 y_train = processed_data[:, target_idx]
 
 feature_indices = [i for i in range(processed_data.shape[1]) if i != target_idx]
 X_train = processed_data[:, feature_indices]
 
 #X, y = data.data, data.target
+
+
+
+poly = PolynomialFeatures(degree=2, interaction_only=False, include_bias=True)
+X_poly = poly.fit_transform(X_train)
+
 model = LinearRegression()
 model.fit(X_train, y_train)
+
+
+#model = LinearRegression()
+#model.fit(X_train, y_train)
 
 
 
@@ -126,6 +230,28 @@ def _predict_with_mask(model,
     final_preds = preds_acc.mean(axis=0)             # media sulle n_bg predizioni
     return final_preds
 
+
+def _predict_with_mask_1(model,
+                       X_source: np.ndarray,
+                       y: np.ndarray,
+                       mapped_active_indices: list,
+                       X_background: np.ndarray) -> np.ndarray:
+    n_source, n_features = X_source.shape
+    n_bg = X_background.shape[0]
+
+    # Caso semplice: se non ci sono feature attive ritorna la predizione costante (mean(y))
+    if not mapped_active_indices:
+        return np.full(shape=(n_source,), fill_value=np.mean(y))
+
+    # costruiamo in loop (memoria-friendly). Se vuoi più velocità usa la versione vectorizzata sotto.
+    mask_bool = np.zeros(n_features, dtype=bool)
+    mask_bool[mapped_active_indices] = True
+
+    X_masked = np.zeros((X_source.shape[0],X_source.shape[1]))
+    X_masked[:, mask_bool] = X_source[:, mask_bool]
+    preds = model.predict(X_masked)              # shape (n_source,)
+
+    return preds
 
 def _predict_with_mask_vectorized(model,
                                   X_source: np.ndarray,
@@ -221,6 +347,43 @@ def loco_func(model,
     return loco_value
 
 
+def loco_func(model,
+              X_train: np.ndarray,
+              y_train: np.ndarray,
+              driver_idx: int,
+              context_indices: list,
+              background_samples: int = 50,
+              random_state: int = None,
+              use_vectorized: bool = False) -> float:
+    """
+    Calcola LOCO per un driver dato il contesto, usando mask-from-background approach.
+    - driver_idx: indice della feature 'driver' (0..d-1)
+    - context_indices: lista di indici da considerare attivi (non mascherati)
+    Ritorna loco_value = error_reduced - error_full
+    """
+    # Usa lo stesso background per entrambi i calcoli per ridurre varianza
+    X_bg = sample_background(X_train, background_samples, random_state)
+
+    mapped_context = list(context_indices)  # assumiamo indici "globali" su X_train
+
+    # preds reduced (context only)
+    if use_vectorized:
+        preds_reduced = _predict_with_mask_vectorized(model, X_train, y_train, mapped_context, X_bg)
+    else:
+        preds_reduced = _predict_with_mask_1(model, X_train, y_train, mapped_context, X_bg)
+    error_reduced = np.mean((y_train - preds_reduced) ** 2)
+
+    # preds full (driver + context)
+    mapped_full = [driver_idx] + mapped_context
+    if use_vectorized:
+        preds_full = _predict_with_mask_vectorized(model, X_train, y_train, mapped_full, X_bg)
+    else:
+        preds_full = _predict_with_mask_1(model, X_train, y_train, mapped_full, X_bg)
+    error_full = np.mean((y_train - preds_full) ** 2)
+
+    loco_value = error_reduced - error_full
+    return loco_value
+
 
 
 
@@ -228,18 +391,30 @@ feature_indices = [i for i in range(processed_data.shape[1]) if i != target_idx]
 
 hifi_diag = HiFiDiagnosticMatrix(model, X_train, y_train,
                                  loco_func=lambda model_, X_, y_, driver_idx, ctx:
-                                 loco_func(model_, X_, y_, driver_idx, ctx))
+                                 loco_func(model_, X_, y_, driver_idx, ctx),
+                                 predict_func = lambda model_ , X_source_,y_,mapped_active_indices_,X_background_:
+                                _predict_with_mask(model,X_source_,y_,mapped_active_indices_,X_background_))
 D = hifi_diag.compute_matrix_D()
 summary = hifi_diag.compute_redundancy_synergy()
 print(summary)
+feature_names = [names for names in processed_names if names != target_name]
 
-# --- 4) (Opzionale) Heatmap
+T_syn, T_red = hifi_diag.compute_third_order_effects()
+max_syn_val = np.max(T_syn)
+i, j, k = np.unravel_index(np.argmax(T_syn), T_syn.shape)
+
+print(f"\n--- Analisi del 3° Ordine ---")
+print(f"Interazione Sinergica a 3 più forte trovata (valore: {max_syn_val:.4f}):")
+print(f"Driver: {feature_names[i]}, Partner 1: {feature_names[j]}, Partner 2: {feature_names[k]}")
 
 
 hifi_diag.plot_heatmap([names for names in processed_names if names != target_name])
 
 
-feature_names = [names for names in processed_names if names != target_name]
 result = hifi_diag.compute_synergy_redundancy(D, feature_names)
-
 print(result)
+
+summary_full = hifi_diag.compute_full_decomposition(feature_names)
+
+print("\n--- Scomposizione Finale (con effetti del 2° e 3° ordine) ---")
+print(summary_full)
